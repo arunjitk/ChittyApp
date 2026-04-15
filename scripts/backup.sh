@@ -10,7 +10,7 @@
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
-APP_DIR="/var/www/chitty"
+APP_DIR="/var/www/chitty/ChittyApp"
 BACKUP_DIR="/var/backups/chitty"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 

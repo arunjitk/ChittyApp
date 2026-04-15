@@ -13,7 +13,7 @@
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
-APP_DIR="/var/www/chitty"
+APP_DIR="/var/www/chitty/ChittyApp"
 COMPOSE="docker compose"
 
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

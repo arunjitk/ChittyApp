@@ -21,7 +21,7 @@ fi
 
 DOMAIN="$1"
 EMAIL="${2:-admin@$DOMAIN}"
-APP_DIR="/var/www/chitty"
+APP_DIR="/var/www/chitty/ChittyApp"
 
 cd "$APP_DIR"
 
