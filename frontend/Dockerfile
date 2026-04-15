@@ -5,7 +5,10 @@ WORKDIR /app
 
 # Install deps (cached layer)
 COPY package*.json ./
-RUN npm ci
+# --legacy-peer-deps: react-scripts@5 declares peer dep on typescript@^3||^4
+# but this project uses typescript@6. The flag skips the conflict check —
+# the build works fine in practice.
+RUN npm ci --legacy-peer-deps
 
 # Copy source and build
 COPY . .
