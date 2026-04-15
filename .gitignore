@@ -1,0 +1,47 @@
+# ── Dependencies ─────────────────────────────────────────────────────────────
+node_modules/
+**/node_modules/
+
+# ── Environment files (NEVER commit — contain secrets) ───────────────────────
+.env
+**/.env
+!.env.example
+!**/.env.example
+
+# ── Build output ──────────────────────────────────────────────────────────────
+frontend/build/
+
+# ── Logs ─────────────────────────────────────────────────────────────────────
+*.log
+logs/
+**/logs/
+backend/backend.log
+frontend/frontend.log
+
+# ── SQLite (local dev only — production uses PostgreSQL in Docker) ────────────
+*.db
+*.db-shm
+*.db-wal
+backend/database/
+
+# ── User uploads (runtime data — not tracked in git) ─────────────────────────
+backend/uploads/
+
+# ── OS ───────────────────────────────────────────────────────────────────────
+.DS_Store
+.DS_Store?
+Thumbs.db
+ehthumbs.db
+
+# ── IDE / editors ─────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+
+# ── Misc ──────────────────────────────────────────────────────────────────────
+.claude/

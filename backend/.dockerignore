@@ -1,0 +1,30 @@
+node_modules
+npm-debug.log*
+
+# Environment files (injected by Docker Compose at runtime)
+.env
+.env.*
+!.env.example
+
+# Local dev artifacts
+logs/
+*.log
+backend.log
+
+# SQLite files (local dev only — production uses PostgreSQL)
+database/
+*.db
+*.db-shm
+*.db-wal
+
+# User-uploaded files (mounted as Docker volume in production)
+uploads/
+
+# PM2 config (not needed inside container — Docker handles process management)
+pm2.config.js
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

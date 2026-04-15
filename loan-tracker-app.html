@@ -1,0 +1,825 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🏦 Loan Tracker Application</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .status-badge {
+            @apply px-2 py-1 text-xs font-medium rounded-full;
+        }
+        .status-pending { @apply bg-yellow-100 text-yellow-800; }
+        .status-approved { @apply bg-green-100 text-green-800; }
+        .status-closed { @apply bg-blue-100 text-blue-800; }
+        .status-foreclosed { @apply bg-gray-100 text-gray-800; }
+        .status-rejected { @apply bg-red-100 text-red-800; }
+    </style>
+</head>
+<body class="bg-gray-50">
+    <!-- Navigation -->
+    <nav class="bg-white shadow">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-16">
+                <div class="flex items-center">
+                    <h1 class="text-2xl font-bold text-gray-900">🏦 Loan Tracker</h1>
+                    <span id="portal-badge" class="ml-4 px-3 py-1 text-xs font-medium rounded-full bg-blue-100 text-blue-800">
+                        Loading...
+                    </span>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <span id="user-info" class="text-sm text-gray-700">Loading...</span>
+                    <button onclick="logout()" class="text-sm text-gray-500 hover:text-gray-700">Logout</button>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Login Form -->
+    <div id="login-container" class="min-h-screen flex items-center justify-center">
+        <div class="max-w-md w-full space-y-8">
+            <div>
+                <h2 class="mt-6 text-center text-3xl font-extrabold text-gray-900">
+                    Sign in to Loan Tracker
+                </h2>
+                <p class="mt-2 text-center text-sm text-gray-600">
+                    Demo Admin: admin@loantracker.com / admin123
+                </p>
+            </div>
+            <form class="mt-8 space-y-6" onsubmit="login(event)">
+                <div class="rounded-md shadow-sm -space-y-px">
+                    <div>
+                        <label for="email" class="sr-only">Email address</label>
+                        <input id="email" name="email" type="email" required 
+                               class="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-t-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm" 
+                               placeholder="Email address" value="admin@loantracker.com">
+                    </div>
+                    <div>
+                        <label for="password" class="sr-only">Password</label>
+                        <input id="password" name="password" type="password" required 
+                               class="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-b-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm" 
+                               placeholder="Password" value="admin123">
+                    </div>
+                </div>
+                <div>
+                    <button type="submit" class="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+                        Sign in
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Main Application -->
+    <div id="app-container" class="hidden">
+        <div class="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+            <!-- Dashboard -->
+            <div id="dashboard-view" class="space-y-6">
+                <div class="md:flex md:items-center md:justify-between">
+                    <div>
+                        <h2 class="text-2xl font-bold leading-7 text-gray-900">Dashboard</h2>
+                        <p class="mt-1 text-sm text-gray-500">Loan pool overview and system status</p>
+                    </div>
+                </div>
+
+                <!-- Pool Summary Cards -->
+                <div class="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4" id="pool-cards">
+                    <!-- Cards will be populated by JavaScript -->
+                </div>
+
+                <!-- Quick Actions -->
+                <div class="bg-white shadow overflow-hidden sm:rounded-lg">
+                    <div class="px-4 py-5 sm:px-6">
+                        <h3 class="text-lg leading-6 font-medium text-gray-900">Quick Actions</h3>
+                    </div>
+                    <div class="border-t border-gray-200">
+                        <div class="px-4 py-5 sm:p-6">
+                            <div class="grid grid-cols-1 gap-4 sm:grid-cols-2" id="quick-actions">
+                                <!-- Actions will be populated by JavaScript -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Loan Application Form -->
+            <div id="loan-application-view" class="hidden space-y-6">
+                <div class="md:flex md:items-center md:justify-between">
+                    <div class="flex-1 min-w-0">
+                        <div class="flex items-center">
+                            <button onclick="showView('dashboard')" class="mr-4 text-gray-400 hover:text-gray-600">
+                                ← Back
+                            </button>
+                            <h2 class="text-2xl font-bold leading-7 text-gray-900">Apply for Loan</h2>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-white shadow overflow-hidden sm:rounded-lg">
+                    <form onsubmit="applyForLoan(event)" class="px-4 py-5 sm:p-6">
+                        <div class="space-y-6">
+                            <div>
+                                <label for="loan-amount" class="block text-sm font-medium text-gray-700">
+                                    Loan Amount (₹)
+                                </label>
+                                <div class="mt-1 relative rounded-md shadow-sm">
+                                    <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                        <span class="text-gray-500 sm:text-sm">₹</span>
+                                    </div>
+                                    <input type="number" id="loan-amount" min="1" step="100" required 
+                                           class="focus:ring-blue-500 focus:border-blue-500 block w-full pl-7 pr-12 sm:text-sm border-gray-300 rounded-md"
+                                           placeholder="0" oninput="calculateInterest()">
+                                    <div class="absolute inset-y-0 right-0 pr-3 flex items-center">
+                                        <span id="max-amount" class="text-gray-500 sm:text-sm">Max: ₹0</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div>
+                                <label for="loan-purpose" class="block text-sm font-medium text-gray-700">
+                                    Purpose
+                                </label>
+                                <textarea id="loan-purpose" rows="3" required
+                                          class="shadow-sm focus:ring-blue-500 focus:border-blue-500 mt-1 block w-full sm:text-sm border border-gray-300 rounded-md"
+                                          placeholder="Briefly describe the purpose of this loan..."></textarea>
+                            </div>
+
+                            <div>
+                                <label for="repayment-date" class="block text-sm font-medium text-gray-700">
+                                    Repayment Date
+                                </label>
+                                <input type="date" id="repayment-date" required 
+                                       class="shadow-sm focus:ring-blue-500 focus:border-blue-500 mt-1 block w-full sm:text-sm border-gray-300 rounded-md"
+                                       onchange="calculateInterest()">
+                            </div>
+
+                            <div id="interest-preview" class="hidden bg-blue-50 border border-blue-200 rounded-md p-4">
+                                <h4 class="text-sm font-medium text-blue-800 mb-2">Interest Calculation</h4>
+                                <div class="grid grid-cols-2 gap-4 text-sm" id="interest-details">
+                                    <!-- Interest details will be populated -->
+                                </div>
+                            </div>
+
+                            <div class="flex justify-end">
+                                <button type="submit" class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+                                    Submit Application
+                                </button>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <!-- My Loans -->
+            <div id="my-loans-view" class="hidden space-y-6">
+                <div class="md:flex md:items-center md:justify-between">
+                    <div>
+                        <h2 class="text-2xl font-bold leading-7 text-gray-900">My Loans</h2>
+                        <p class="mt-1 text-sm text-gray-500">View all your loan applications</p>
+                    </div>
+                </div>
+
+                <div class="bg-white shadow overflow-hidden sm:rounded-lg">
+                    <div class="px-4 py-5 sm:px-6">
+                        <h3 class="text-lg leading-6 font-medium text-gray-900">Loan History</h3>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full divide-y divide-gray-200">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Loan ID</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Amount</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Applied On</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Repayment Date</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Interest</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Total Due</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                                </tr>
+                            </thead>
+                            <tbody id="loans-table-body" class="bg-white divide-y divide-gray-200">
+                                <!-- Loans will be populated here -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Admin Loan Management -->
+            <div id="admin-loans-view" class="hidden space-y-6">
+                <div class="md:flex md:items-center md:justify-between">
+                    <div>
+                        <h2 class="text-2xl font-bold leading-7 text-gray-900">Loan Management</h2>
+                        <p class="mt-1 text-sm text-gray-500">Manage all loan applications and approvals</p>
+                    </div>
+                </div>
+
+                <!-- Tab Navigation -->
+                <div class="border-b border-gray-200">
+                    <nav class="-mb-px flex space-x-8">
+                        <button onclick="loadAdminLoans('pending')" class="tab-button py-4 px-1 border-b-2 font-medium text-sm border-blue-500 text-blue-600" data-tab="pending">
+                            Pending (<span id="pending-count">0</span>)
+                        </button>
+                        <button onclick="loadAdminLoans('active')" class="tab-button py-4 px-1 border-b-2 font-medium text-sm border-transparent text-gray-500 hover:text-gray-700" data-tab="active">
+                            Active (<span id="active-count">0</span>)
+                        </button>
+                        <button onclick="loadAdminLoans('all')" class="tab-button py-4 px-1 border-b-2 font-medium text-sm border-transparent text-gray-500 hover:text-gray-700" data-tab="all">
+                            All Loans (<span id="all-count">0</span>)
+                        </button>
+                    </nav>
+                </div>
+
+                <!-- Admin Loans Table -->
+                <div class="bg-white shadow overflow-hidden sm:rounded-lg">
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full divide-y divide-gray-200">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">ID</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Applicant</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Amount</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Applied On</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Repayment Date</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Interest</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Total Due</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="admin-loans-table-body" class="bg-white divide-y divide-gray-200">
+                                <!-- Admin loans will be populated here -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notifications -->
+    <div id="toast-container" class="fixed bottom-4 right-4 z-50"></div>
+
+    <script>
+        // Global variables
+        let currentUser = null;
+        let authToken = null;
+        const API_BASE = 'http://localhost:3000/api';
+
+        // Utility functions
+        function formatCurrency(amount) {
+            return new Intl.NumberFormat('en-IN', {
+                style: 'currency',
+                currency: 'INR',
+                maximumFractionDigits: 0
+            }).format(amount);
+        }
+
+        function formatDate(dateString) {
+            const date = new Date(dateString);
+            const day = date.getDate().toString().padStart(2, '0');
+            const month = (date.getMonth() + 1).toString().padStart(2, '0');
+            const year = date.getFullYear();
+            return `${day}/${month}/${year}`;
+        }
+
+        function getStatusColor(status) {
+            switch (status.toLowerCase()) {
+                case 'pending': return 'status-pending';
+                case 'approved': return 'status-approved';
+                case 'closed': return 'status-closed';
+                case 'foreclosed': return 'status-foreclosed';
+                case 'rejected': return 'status-rejected';
+                default: return 'bg-gray-100 text-gray-800';
+            }
+        }
+
+        function showToast(message, type = 'success') {
+            const toast = document.createElement('div');
+            toast.className = `mb-4 p-4 rounded-md shadow-lg ${
+                type === 'success' ? 'bg-green-500 text-white' : 'bg-red-500 text-white'
+            }`;
+            toast.textContent = message;
+            
+            document.getElementById('toast-container').appendChild(toast);
+            
+            setTimeout(() => {
+                toast.remove();
+            }, 3000);
+        }
+
+        // API functions
+        async function apiCall(endpoint, options = {}) {
+            const defaultOptions = {
+                headers: {
+                    'Content-Type': 'application/json',
+                }
+            };
+            
+            if (authToken) {
+                defaultOptions.headers.Authorization = `Bearer ${authToken}`;
+            }
+            
+            const response = await fetch(API_BASE + endpoint, { ...defaultOptions, ...options });
+            
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.error || 'API request failed');
+            }
+            
+            return response.json();
+        }
+
+        // Authentication
+        async function login(event) {
+            event.preventDefault();
+            
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+            
+            try {
+                const data = await apiCall('/auth/login', {
+                    method: 'POST',
+                    body: JSON.stringify({ email, password })
+                });
+                
+                currentUser = data.user;
+                authToken = data.token;
+                
+                localStorage.setItem('authToken', authToken);
+                localStorage.setItem('currentUser', JSON.stringify(currentUser));
+                
+                showApp();
+                loadDashboard();
+                showToast('Login successful!');
+            } catch (error) {
+                showToast(error.message, 'error');
+            }
+        }
+
+        function logout() {
+            currentUser = null;
+            authToken = null;
+            localStorage.removeItem('authToken');
+            localStorage.removeItem('currentUser');
+            showLogin();
+        }
+
+        function showLogin() {
+            document.getElementById('login-container').classList.remove('hidden');
+            document.getElementById('app-container').classList.add('hidden');
+        }
+
+        function showApp() {
+            document.getElementById('login-container').classList.add('hidden');
+            document.getElementById('app-container').classList.remove('hidden');
+            
+            // Update user info
+            document.getElementById('user-info').textContent = currentUser.name;
+            document.getElementById('portal-badge').textContent = 
+                currentUser.role === 'admin' ? 'Admin Portal' : 'User Portal';
+        }
+
+        // View management
+        function showView(viewName) {
+            // Hide all views
+            document.getElementById('dashboard-view').classList.add('hidden');
+            document.getElementById('loan-application-view').classList.add('hidden');
+            document.getElementById('my-loans-view').classList.add('hidden');
+            document.getElementById('admin-loans-view').classList.add('hidden');
+            
+            // Show selected view
+            document.getElementById(viewName + '-view').classList.remove('hidden');
+            
+            if (viewName === 'my-loans') {
+                loadMyLoans();
+            } else if (viewName === 'admin-loans' && currentUser.role === 'admin') {
+                loadAdminLoans('pending');
+            }
+        }
+
+        // Dashboard
+        async function loadDashboard() {
+            try {
+                const [dashboard, pool] = await Promise.all([
+                    apiCall('/pool/dashboard'),
+                    apiCall('/pool/summary')
+                ]);
+                
+                // Update pool cards
+                const cards = document.getElementById('pool-cards');
+                cards.innerHTML = `
+                    <div class="bg-white overflow-hidden shadow rounded-lg">
+                        <div class="p-5">
+                            <div class="flex items-center">
+                                <div class="flex-shrink-0 bg-green-100 rounded-md p-3">
+                                    💰
+                                </div>
+                                <div class="ml-5 w-0 flex-1">
+                                    <dl>
+                                        <dt class="text-sm font-medium text-gray-500 truncate">Available Balance</dt>
+                                        <dd class="text-lg font-medium text-gray-900">${formatCurrency(dashboard.available_balance)}</dd>
+                                    </dl>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="bg-white overflow-hidden shadow rounded-lg">
+                        <div class="p-5">
+                            <div class="flex items-center">
+                                <div class="flex-shrink-0 bg-blue-100 rounded-md p-3">
+                                    🏦
+                                </div>
+                                <div class="ml-5 w-0 flex-1">
+                                    <dl>
+                                        <dt class="text-sm font-medium text-gray-500 truncate">Total Pool</dt>
+                                        <dd class="text-lg font-medium text-gray-900">${formatCurrency(dashboard.total_pool)}</dd>
+                                    </dl>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="bg-white overflow-hidden shadow rounded-lg">
+                        <div class="p-5">
+                            <div class="flex items-center">
+                                <div class="flex-shrink-0 bg-yellow-100 rounded-md p-3">
+                                    ⏳
+                                </div>
+                                <div class="ml-5 w-0 flex-1">
+                                    <dl>
+                                        <dt class="text-sm font-medium text-gray-500 truncate">Pending Applications</dt>
+                                        <dd class="text-lg font-medium text-gray-900">${dashboard.pending_count}</dd>
+                                    </dl>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="bg-white overflow-hidden shadow rounded-lg">
+                        <div class="p-5">
+                            <div class="flex items-center">
+                                <div class="flex-shrink-0 bg-purple-100 rounded-md p-3">
+                                    📈
+                                </div>
+                                <div class="ml-5 w-0 flex-1">
+                                    <dl>
+                                        <dt class="text-sm font-medium text-gray-500 truncate">Interest Collected</dt>
+                                        <dd class="text-lg font-medium text-gray-900">${formatCurrency(dashboard.total_interest_collected)}</dd>
+                                    </dl>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                
+                // Update quick actions
+                const actions = document.getElementById('quick-actions');
+                
+                if (currentUser.role === 'admin') {
+                    actions.innerHTML = `
+                        <button onclick="showView('admin-loans')" class="inline-flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700">
+                            📋 Manage Loans
+                        </button>
+                        ${dashboard.pending_count > 0 ? `
+                        <button onclick="showView('admin-loans')" class="inline-flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-yellow-600 hover:bg-yellow-700">
+                            ⏳ Review Pending (${dashboard.pending_count})
+                        </button>
+                        ` : ''}
+                    `;
+                } else {
+                    actions.innerHTML = `
+                        <button onclick="showView('loan-application')" class="inline-flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700">
+                            📝 Apply for Loan
+                        </button>
+                        <button onclick="showView('my-loans')" class="inline-flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-gray-600 hover:bg-gray-700">
+                            📄 My Loans
+                        </button>
+                    `;
+                }
+                
+                // Set max loan amount
+                document.getElementById('max-amount').textContent = `Max: ${formatCurrency(dashboard.available_balance)}`;
+                
+            } catch (error) {
+                showToast(error.message, 'error');
+            }
+        }
+
+        // Loan Application
+        async function calculateInterest() {
+            const amount = parseFloat(document.getElementById('loan-amount').value);
+            const repaymentDate = document.getElementById('repayment-date').value;
+            
+            if (!amount || !repaymentDate) {
+                document.getElementById('interest-preview').classList.add('hidden');
+                return;
+            }
+            
+            try {
+                const data = await apiCall('/loans/calculate-interest', {
+                    method: 'POST',
+                    body: JSON.stringify({ amount, repayment_date })
+                });
+                
+                const preview = document.getElementById('interest-preview');
+                const details = document.getElementById('interest-details');
+                
+                details.innerHTML = `
+                    <div>
+                        <span class="text-gray-600">Principal:</span>
+                        <div class="font-semibold">${formatCurrency(amount)}</div>
+                    </div>
+                    <div>
+                        <span class="text-gray-600">Interest:</span>
+                        <div class="font-semibold">${formatCurrency(data.interest_amount)}</div>
+                    </div>
+                    <div>
+                        <span class="text-gray-600">Days:</span>
+                        <div class="font-semibold">${data.days} days</div>
+                    </div>
+                    <div>
+                        <span class="text-gray-600">Total Due:</span>
+                        <div class="font-semibold text-blue-600">${formatCurrency(data.total_due)}</div>
+                    </div>
+                `;
+                
+                preview.classList.remove('hidden');
+            } catch (error) {
+                console.error('Interest calculation error:', error);
+            }
+        }
+
+        async function applyForLoan(event) {
+            event.preventDefault();
+            
+            const amount = parseFloat(document.getElementById('loan-amount').value);
+            const purpose = document.getElementById('loan-purpose').value;
+            const repaymentDate = document.getElementById('repayment-date').value;
+            
+            try {
+                await apiCall('/loans/apply', {
+                    method: 'POST',
+                    body: JSON.stringify({ amount, purpose, repayment_date })
+                });
+                
+                showToast('Loan application submitted successfully!');
+                
+                // Reset form
+                document.getElementById('loan-amount').value = '';
+                document.getElementById('loan-purpose').value = '';
+                document.getElementById('repayment-date').value = '';
+                document.getElementById('interest-preview').classList.add('hidden');
+                
+                // Go back to dashboard
+                showView('dashboard');
+                loadDashboard();
+                
+            } catch (error) {
+                showToast(error.message, 'error');
+            }
+        }
+
+        // My Loans
+        async function loadMyLoans() {
+            try {
+                const data = await apiCall('/loans/my-loans');
+                const tbody = document.getElementById('loans-table-body');
+                
+                if (data.loans.length === 0) {
+                    tbody.innerHTML = `
+                        <tr>
+                            <td colspan="7" class="px-6 py-8 text-center text-gray-500">
+                                No loans found. <a href="#" onclick="showView('loan-application')" class="text-blue-600 hover:text-blue-500">Apply for your first loan</a>
+                            </td>
+                        </tr>
+                    `;
+                } else {
+                    tbody.innerHTML = data.loans.map(loan => `
+                        <tr class="hover:bg-gray-50">
+                            <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-blue-600">
+                                #${loan.id.toString().padStart(4, '0')}
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                ${formatCurrency(loan.amount)}
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                ${formatDate(loan.applied_on)}
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                ${formatDate(loan.repayment_date)}
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                ${formatCurrency(loan.interest_amount)}
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                                ${formatCurrency(loan.total_due)}
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap">
+                                <span class="status-badge ${getStatusColor(loan.status)}">
+                                    ${loan.status.charAt(0).toUpperCase() + loan.status.slice(1)}
+                                </span>
+                            </td>
+                        </tr>
+                    `).join('');
+                }
+            } catch (error) {
+                showToast(error.message, 'error');
+            }
+        }
+
+        // Admin Loan Management
+        async function loadAdminLoans(type) {
+            if (currentUser.role !== 'admin') return;
+            
+            try {
+                // Update tab styling
+                document.querySelectorAll('.tab-button').forEach(btn => {
+                    if (btn.dataset.tab === type) {
+                        btn.className = 'tab-button py-4 px-1 border-b-2 font-medium text-sm border-blue-500 text-blue-600';
+                    } else {
+                        btn.className = 'tab-button py-4 px-1 border-b-2 font-medium text-sm border-transparent text-gray-500 hover:text-gray-700';
+                    }
+                });
+                
+                let endpoint = '/loans/all';
+                if (type === 'pending') endpoint = '/loans/pending';
+                else if (type === 'active') endpoint = '/loans/active';
+                
+                const data = await apiCall(endpoint);
+                const tbody = document.getElementById('admin-loans-table-body');
+                
+                if (data.loans.length === 0) {
+                    tbody.innerHTML = `
+                        <tr>
+                            <td colspan="9" class="px-6 py-8 text-center text-gray-500">
+                                No ${type} loans found.
+                            </td>
+                        </tr>
+                    `;
+                } else {
+                    tbody.innerHTML = data.loans.map(loan => `
+                        <tr class="hover:bg-gray-50">
+                            <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-blue-600">
+                                #${loan.id.toString().padStart(4, '0')}
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap">
+                                <div class="flex items-center">
+                                    <div class="flex-shrink-0 h-8 w-8">
+                                        <div class="h-8 w-8 rounded-full bg-blue-100 flex items-center justify-center">
+                                            👤
+                                        </div>
+                                    </div>
+                                    <div class="ml-3">
+                                        <div class="text-sm font-medium text-gray-900">${loan.user_name}</div>
+                                        <div class="text-sm text-gray-500">${loan.user_email}</div>
+                                    </div>
+                                </div>
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                ${formatCurrency(loan.amount)}
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                ${formatDate(loan.applied_on)}
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                ${formatDate(loan.repayment_date)}
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                ${formatCurrency(loan.interest_amount)}
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                                ${formatCurrency(loan.total_due)}
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap">
+                                <span class="status-badge ${getStatusColor(loan.status)}">
+                                    ${loan.status.charAt(0).toUpperCase() + loan.status.slice(1)}
+                                </span>
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                                <div class="flex space-x-2">
+                                    ${loan.status === 'pending' ? `
+                                        <button onclick="approveLoan(${loan.id})" class="text-green-600 hover:text-green-900" title="Approve">
+                                            ✅
+                                        </button>
+                                        <button onclick="rejectLoan(${loan.id})" class="text-red-600 hover:text-red-900" title="Reject">
+                                            ❌
+                                        </button>
+                                    ` : ''}
+                                    ${loan.status === 'approved' ? `
+                                        <button onclick="closeLoan(${loan.id})" class="text-blue-600 hover:text-blue-900" title="Close">
+                                            ✅
+                                        </button>
+                                        <button onclick="forecloseLoan(${loan.id})" class="text-yellow-600 hover:text-yellow-900" title="Foreclose">
+                                            ⚡
+                                        </button>
+                                    ` : ''}
+                                </div>
+                            </td>
+                        </tr>
+                    `).join('');
+                }
+                
+                // Update counts
+                const allData = await apiCall('/loans/all');
+                const pendingData = await apiCall('/loans/pending');
+                const activeData = await apiCall('/loans/active');
+                
+                document.getElementById('pending-count').textContent = pendingData.loans.length;
+                document.getElementById('active-count').textContent = activeData.loans.length;
+                document.getElementById('all-count').textContent = allData.loans.length;
+                
+            } catch (error) {
+                showToast(error.message, 'error');
+            }
+        }
+
+        // Admin Actions
+        async function approveLoan(loanId) {
+            if (!confirm('Are you sure you want to approve this loan?')) return;
+            
+            try {
+                await apiCall(`/loans/${loanId}/approve`, {
+                    method: 'POST',
+                    body: JSON.stringify({})
+                });
+                
+                showToast('Loan approved successfully!');
+                loadAdminLoans('pending');
+                loadDashboard();
+            } catch (error) {
+                showToast(error.message, 'error');
+            }
+        }
+
+        async function rejectLoan(loanId) {
+            const reason = prompt('Please enter rejection reason:');
+            if (!reason) return;
+            
+            try {
+                await apiCall(`/loans/${loanId}/reject`, {
+                    method: 'POST',
+                    body: JSON.stringify({ admin_notes: reason })
+                });
+                
+                showToast('Loan rejected successfully!');
+                loadAdminLoans('pending');
+                loadDashboard();
+            } catch (error) {
+                showToast(error.message, 'error');
+            }
+        }
+
+        async function closeLoan(loanId) {
+            if (!confirm('Are you sure you want to close this loan? This will return principal + interest to the pool.')) return;
+            
+            try {
+                await apiCall(`/loans/${loanId}/close`, {
+                    method: 'POST'
+                });
+                
+                showToast('Loan closed successfully!');
+                loadAdminLoans('active');
+                loadDashboard();
+            } catch (error) {
+                showToast(error.message, 'error');
+            }
+        }
+
+        async function forecloseLoan(loanId) {
+            const notes = prompt('Please enter foreclosure details (optional):');
+            
+            try {
+                await apiCall(`/loans/${loanId}/foreclose`, {
+                    method: 'POST',
+                    body: JSON.stringify({ admin_notes: notes || '' })
+                });
+                
+                showToast('Loan foreclosed successfully!');
+                loadAdminLoans('active');
+                loadDashboard();
+            } catch (error) {
+                showToast(error.message, 'error');
+            }
+        }
+
+        // Initialize app
+        function initApp() {
+            // Check for existing session
+            const token = localStorage.getItem('authToken');
+            const user = localStorage.getItem('currentUser');
+            
+            if (token && user) {
+                authToken = token;
+                currentUser = JSON.parse(user);
+                showApp();
+                loadDashboard();
+            } else {
+                showLogin();
+            }
+        }
+
+        // Start the app
+        initApp();
+    </script>
+</body>
+</html>

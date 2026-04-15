@@ -1,0 +1,92 @@
+services:
+
+  # ── PostgreSQL ──────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB:       ${DB_NAME}
+      POSTGRES_USER:     ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - app-network
+
+  # ── Node.js Backend ─────────────────────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    environment:
+      NODE_ENV:     production
+      PORT:         3000
+      DB_HOST:      postgres        # ← service name, not localhost
+      DB_PORT:      5432
+      DB_NAME:      ${DB_NAME}
+      DB_USER:      ${DB_USER}
+      DB_PASSWORD:  ${DB_PASSWORD}
+      JWT_SECRET:   ${JWT_SECRET}
+      FRONTEND_URL: ${FRONTEND_URL}
+    volumes:
+      # Persist user-uploaded files across container rebuilds
+      - uploads_data:/app/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - app-network
+
+  # ── React Frontend ──────────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        # API URL is baked into the JS bundle at build time
+        REACT_APP_API_URL: ${REACT_APP_API_URL}
+    restart: unless-stopped
+    networks:
+      - app-network
+
+  # ── Nginx Reverse Proxy ─────────────────────────────────────────────────────
+  nginx:
+    image: nginx:alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - certbot_www:/var/www/certbot:ro
+      - certbot_conf:/etc/letsencrypt:ro
+    depends_on:
+      - backend
+      - frontend
+    networks:
+      - app-network
+
+  # ── Certbot (SSL renewal) ───────────────────────────────────────────────────
+  # Not a long-running service — invoked on-demand by init-ssl.sh and the cron job.
+  certbot:
+    image: certbot/certbot
+    volumes:
+      - certbot_www:/var/www/certbot
+      - certbot_conf:/etc/letsencrypt
+    # No restart policy — runs only when explicitly called
+
+# ── Named Volumes ────────────────────────────────────────────────────────────
+volumes:
+  postgres_data:    # PostgreSQL data — survives container rebuilds
+  uploads_data:     # User-uploaded files — survives container rebuilds
+  certbot_www:      # ACME challenge tokens
+  certbot_conf:     # SSL certificates + renewal config
+
+# ── Network ──────────────────────────────────────────────────────────────────
+networks:
+  app-network:
+    driver: bridge
