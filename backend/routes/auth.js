@@ -1,6 +1,7 @@
 const express = require('express');
 const User = require('../models/User');
 const { generateToken, auth } = require('../middleware/auth');
+const telegram = require('../services/telegramService');
 
 const router = express.Router();
 
@@ -19,7 +20,12 @@ router.post('/register', async (req, res) => {
     }
 
     // Create with status='pending' — admin must approve before the account is usable
-    await User.create({ name, email, password, phone: phone || null, status: 'pending' });
+    const newUser = await User.create({ name, email, password, phone: phone || null, status: 'pending' });
+
+    // [TELEGRAM NOTIFICATION]
+    telegram.notifyNewUserRegistration(newUser).catch((err) =>
+      console.error('[TelegramService] notifyNewUserRegistration error:', err)
+    );
 
     res.status(202).json({
       pending: true,
@@ -76,6 +82,13 @@ router.post('/login', async (req, res) => {
     await User.resetFailedAttempts(user.id);
 
     const token = generateToken(user);
+
+    // [TELEGRAM NOTIFICATION] — skip admin logins to reduce noise
+    if (user.role === 'user') {
+      telegram.notifyUserLogin(user).catch((err) =>
+        console.error('[TelegramService] notifyUserLogin error:', err)
+      );
+    }
 
     res.json({
       message: 'Login successful',

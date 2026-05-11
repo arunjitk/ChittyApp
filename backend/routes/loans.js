@@ -6,6 +6,7 @@ const LoanApplication = require('../models/LoanApplication');
 const LoanPool = require('../models/LoanPool');
 const { pool } = require('../config/database');
 const { auth, adminAuth, userAuth } = require('../middleware/auth');
+const telegram = require('../services/telegramService');
 
 const router = express.Router();
 
@@ -75,6 +76,11 @@ router.post('/apply', userAuth, async (req, res) => {
       purpose,
       repayment_date
     });
+
+    // [TELEGRAM NOTIFICATION]
+    telegram.notifyLoanApplication(req.user, loan).catch((err) =>
+      console.error('[TelegramService] notifyLoanApplication error:', err)
+    );
 
     res.status(201).json({
       message: 'Loan application submitted successfully',
@@ -210,6 +216,12 @@ router.post('/:id/request-swap', auth, async (req, res) => {
       }
       throw err;
     }
+
+    // [TELEGRAM NOTIFICATION] — loan.user_name/user_email come from findById's join on users
+    const originalOwner = { name: loan.user_name, email: loan.user_email };
+    telegram.notifyLoanSwapRequest(req.user, originalOwner, loan).catch((err) =>
+      console.error('[TelegramService] notifyLoanSwapRequest error:', err)
+    );
 
     res.json({ message: 'Swap request sent to loan owner for approval' });
   } catch (error) {
