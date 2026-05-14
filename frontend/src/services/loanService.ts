@@ -31,6 +31,21 @@ export interface PoolSummary {
   expected_interest: number;
 }
 
+export interface InterestCollection {
+  id: number;
+  loan_id: number | null;
+  user_id: number | null;
+  amount: number;
+  source: 'close' | 'foreclose' | 'adjustment' | 'reset' | 'transfer';
+  collected_on: string;
+  notes: string | null;
+  created_at: string;
+  user_name: string | null;
+  user_email: string | null;
+  loan_amount: number | null;
+  loan_status: string | null;
+}
+
 export const loanService = {
   async applyForLoan(loanData: {
     amount: number;
@@ -202,5 +217,12 @@ export const poolService = {
   async transferInterest() {
     const response = await api.post('/pool/transfer-interest');
     return response.data;
-  }
+  },
+
+  async getInterestCollections(limit: number = 100, offset: number = 0) {
+    const response = await api.get('/pool/interest-collections', {
+      params: { limit, offset },
+    });
+    return response.data as { collections: InterestCollection[]; total: number };
+  },
 };

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { loanService, LoanApplication, poolService, PoolSummary } from '../services/loanService';
+import { loanService, LoanApplication, poolService, PoolSummary, InterestCollection } from '../services/loanService';
 import { formatCurrency, formatDate, getStatusText } from '../utils/format';
 import toast from 'react-hot-toast';
 import {
@@ -14,6 +14,9 @@ import {
   PlusCircleIcon,
   PencilSquareIcon,
   WrenchScrewdriverIcon,
+  ClockIcon,
+  ChevronDownIcon,
+  ChevronUpIcon,
 } from '@heroicons/react/24/outline';
 
 const getStatusBadgeClass = (status: string) => {
@@ -54,6 +57,11 @@ const AdminLoans: React.FC = () => {
   const [transferLoading, setTransferLoading] = useState(false);
   const [resetInterestLoading, setResetInterestLoading] = useState(false);
 
+  // Interest collection history viewer
+  const [interestCollections, setInterestCollections] = useState<InterestCollection[]>([]);
+  const [interestHistoryOpen, setInterestHistoryOpen] = useState(false);
+  const [interestHistoryLoading, setInterestHistoryLoading] = useState(false);
+
   // Payment receipt modal state (close / foreclose)
   const [receiptModal, setReceiptModal] = useState<{ type: 'close' | 'foreclose'; loan: LoanApplication } | null>(null);
   const [receiptFile, setReceiptFile] = useState<File | null>(null);
@@ -78,14 +86,28 @@ const AdminLoans: React.FC = () => {
   const [rejectReason, setRejectReason] = useState('');
   const [rejectSubmitting, setRejectSubmitting] = useState(false);
 
+  const refreshInterestHistory = async () => {
+    setInterestHistoryLoading(true);
+    try {
+      const { collections } = await poolService.getInterestCollections(100, 0);
+      setInterestCollections(collections);
+    } catch (err) {
+      // Non-fatal — viewer just stays empty
+      console.error('Failed to load interest history:', err);
+    } finally {
+      setInterestHistoryLoading(false);
+    }
+  };
+
   const refreshData = async () => {
-    const [allData, pendingData, activeData, swapQueueData, swapHistoryData, poolData] = await Promise.all([
+    const [allData, pendingData, activeData, swapQueueData, swapHistoryData, poolData, historyData] = await Promise.all([
       loanService.getAllLoans(),
       loanService.getPendingLoans(),
       loanService.getActiveLoans(),
       loanService.getAdminSwapRequests().catch(() => []),
       loanService.getSwappedLoans().catch(() => []),
       poolService.getSummary().catch(() => null),
+      poolService.getInterestCollections(100, 0).catch(() => ({ collections: [] as InterestCollection[], total: 0 })),
     ]);
     setAllLoans(allData);
     setPendingLoans(pendingData);
@@ -93,6 +115,7 @@ const AdminLoans: React.FC = () => {
     setAdminSwapRequests(swapQueueData);
     setSwappedLoans(swapHistoryData);
     setPoolSummary(poolData);
+    setInterestCollections(historyData.collections);
   };
 
   const handleTopUp = async (e: React.FormEvent) => {
@@ -725,7 +748,7 @@ const AdminLoans: React.FC = () => {
                       type="number"
                       className="form-control input-with-prefix"
                       min="1"
-                      step="100"
+                      step="1"
                       value={topUpAmount}
                       onChange={e => setTopUpAmount(e.target.value)}
                       placeholder="0"
@@ -761,7 +784,7 @@ const AdminLoans: React.FC = () => {
                         type="number"
                         className="form-control input-with-prefix"
                         min="0"
-                        step="100"
+                        step="1"
                         value={setBalanceAmount}
                         onChange={e => setSetBalanceAmount(e.target.value)}
                         placeholder={poolSummary ? String(poolSummary.available_balance) : '0'}
@@ -794,7 +817,7 @@ const AdminLoans: React.FC = () => {
                           type="number"
                           className="form-control input-with-prefix"
                           min="0"
-                          step="50"
+                          step="1"
                           value={setInterestAmount}
                           onChange={e => setSetInterestAmount(e.target.value)}
                           placeholder="0"
@@ -831,6 +854,84 @@ const AdminLoans: React.FC = () => {
                 </button>
               </div>
             </div>
+          </div>
+
+          {/* Interest Collection History */}
+          <div className="card section">
+            <div
+              className="card-header"
+              style={{ cursor: 'pointer', userSelect: 'none' }}
+              onClick={() => {
+                const next = !interestHistoryOpen;
+                setInterestHistoryOpen(next);
+                if (next && interestCollections.length === 0) refreshInterestHistory();
+              }}
+            >
+              <div className="card-header-text">
+                <h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <ClockIcon style={{ width: 18, height: 18 }} />
+                  Interest Collection History
+                </h3>
+                <p>
+                  {interestCollections.length > 0
+                    ? `${interestCollections.length} entries · running total ${poolSummary ? formatCurrency(poolSummary.total_interest_collected) : '₹0'}`
+                    : 'Click to view interest entries from loan closures, foreclosures, and admin adjustments'}
+                </p>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center' }}>
+                {interestHistoryOpen
+                  ? <ChevronUpIcon style={{ width: 20, height: 20, color: 'var(--gray-500)' }} />
+                  : <ChevronDownIcon style={{ width: 20, height: 20, color: 'var(--gray-500)' }} />}
+              </div>
+            </div>
+            {interestHistoryOpen && (
+              <div className="card-body">
+                {interestHistoryLoading ? (
+                  <div style={{ textAlign: 'center', padding: 20, color: 'var(--gray-500)' }}>Loading…</div>
+                ) : interestCollections.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: 20, color: 'var(--gray-500)' }}>
+                    No interest collected yet. Entries appear automatically when loans are closed or foreclosed.
+                  </div>
+                ) : (
+                  <div style={{ overflowX: 'auto' }}>
+                    <table className="data-table" style={{ width: '100%' }}>
+                      <thead>
+                        <tr>
+                          <th>Date</th>
+                          <th>Source</th>
+                          <th>User</th>
+                          <th>Loan</th>
+                          <th style={{ textAlign: 'right' }}>Amount</th>
+                          <th>Notes</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {interestCollections.map((ic) => {
+                          const isNegative = ic.amount < 0;
+                          const sourceBadgeClass =
+                            ic.source === 'close' ? 'badge badge-closed' :
+                            ic.source === 'foreclose' ? 'badge badge-foreclosed' :
+                            ic.source === 'transfer' ? 'badge badge-approved' :
+                            'badge badge-pending';
+                          return (
+                            <tr key={ic.id}>
+                              <td>{formatDate(ic.collected_on)}</td>
+                              <td><span className={sourceBadgeClass}>{ic.source}</span></td>
+                              <td>{ic.user_name || <span style={{ color: 'var(--gray-400)' }}>—</span>}</td>
+                              <td>{ic.loan_id ? `#${ic.loan_id}` : <span style={{ color: 'var(--gray-400)' }}>—</span>}</td>
+                              <td style={{ textAlign: 'right', fontWeight: 600, color: isNegative ? 'var(--color-danger)' : 'var(--color-success)' }}>
+                                {isNegative ? '−' : '+'}{formatCurrency(Math.abs(ic.amount))}
+                              </td>
+                              <td style={{ fontSize: 12, color: 'var(--gray-600)' }}>{ic.notes || ''}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </>
       )}

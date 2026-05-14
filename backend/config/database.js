@@ -198,6 +198,32 @@ async function initializeDatabase() {
       WHERE status IN ('pending_owner', 'pending_admin')
     `);
 
+    // Interest collections — source-of-truth audit log for "Interest Collected".
+    //   `source` values:
+    //     'close'      - loan closed normally (positive amount = collected interest)
+    //     'foreclose'  - loan foreclosed early (positive amount = actual interest)
+    //     'adjustment' - admin manually set the collected total (signed delta)
+    //     'reset'      - admin reset collected interest to zero (negative delta)
+    //     'transfer'   - admin moved collected interest into available balance (negative delta)
+    //   loan_id / user_id are nullable so adjustment/reset/transfer rows (which
+    //   are not tied to a specific loan) can still be inserted. ON DELETE SET NULL
+    //   keeps the history row even if the loan or user is removed later.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS interest_collections (
+        id SERIAL PRIMARY KEY,
+        loan_id INTEGER REFERENCES loan_applications(id) ON DELETE SET NULL,
+        user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        amount NUMERIC(15,2) NOT NULL,
+        source TEXT NOT NULL CHECK (source IN ('close','foreclose','adjustment','reset','transfer')),
+        collected_on TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        notes TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_ic_loan ON interest_collections(loan_id)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_ic_user ON interest_collections(user_id)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_ic_collected_on ON interest_collections(collected_on DESC)`);
+
     // Seed loan_pool row
     await client.query(`
       INSERT INTO loan_pool (id, total_pool, available_balance, total_interest_collected)

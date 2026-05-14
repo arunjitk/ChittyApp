@@ -513,12 +513,11 @@ router.post('/:id/close', adminAuth, uploadLoanScreenshot.single('screenshot'), 
        WHERE id = $1`,
       [loanId, screenshotPath, paymentReceivedDate]
     );
+    // Record interest collection in the tracker (source of truth for dashboard).
     await client.query(
-      `UPDATE loan_pool
-       SET total_interest_collected = total_interest_collected + $1,
-           updated_at = CURRENT_TIMESTAMP
-       WHERE id = 1`,
-      [loan.interest_amount]
+      `INSERT INTO interest_collections (loan_id, user_id, amount, source, collected_on, notes)
+       VALUES ($1, $2, $3, 'close', COALESCE($4::timestamp, CURRENT_TIMESTAMP), $5)`,
+      [loanId, loan.user_id, loan.interest_amount, paymentReceivedDate, `Loan #${loanId} closed`]
     );
     await client.query(
       `UPDATE loan_pool
@@ -577,12 +576,19 @@ router.post('/:id/foreclose', adminAuth, uploadLoanScreenshot.single('screenshot
        WHERE id = $2`,
       [admin_notes, loanId, screenshotPath, paymentReceivedDate, actualInterest, actualTotalDue]
     );
+    // Record interest collection in the tracker (source of truth for dashboard).
+    // Foreclosure interest may legitimately be ₹0 (closed inside grace period);
+    // we still log a row so the audit trail captures the event.
     await client.query(
-      `UPDATE loan_pool
-       SET total_interest_collected = total_interest_collected + $1,
-           updated_at = CURRENT_TIMESTAMP
-       WHERE id = 1`,
-      [actualInterest]
+      `INSERT INTO interest_collections (loan_id, user_id, amount, source, collected_on, notes)
+       VALUES ($1, $2, $3, 'foreclose', COALESCE($4::timestamp, CURRENT_TIMESTAMP), $5)`,
+      [
+        loanId,
+        loan.user_id,
+        actualInterest,
+        paymentReceivedDate,
+        `Loan #${loanId} foreclosed (${daysElapsed} days elapsed, ${weeksCharged} week(s) charged)`,
+      ]
     );
     await client.query(
       `UPDATE loan_pool
