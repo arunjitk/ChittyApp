@@ -137,14 +137,17 @@ async function initializeDatabase() {
         payout_month INTEGER NOT NULL,
         penalties_due NUMERIC(15,2) NOT NULL DEFAULT 0,
         status TEXT NOT NULL DEFAULT 'active',
-        transfer_requested INTEGER NOT NULL DEFAULT 0,
-        transfer_approved INTEGER NOT NULL DEFAULT 0,
         paid_month INTEGER,
         monthly_chitty_amount NUMERIC(15,2) NOT NULL DEFAULT 6000,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
+
+    // Migrate: drop legacy one-sided transfer flags. The new
+    // chitty_swap_requests table is the source of truth for swap intent.
+    await client.query(`ALTER TABLE user_chitty DROP COLUMN IF EXISTS transfer_requested`);
+    await client.query(`ALTER TABLE user_chitty DROP COLUMN IF EXISTS transfer_approved`);
 
     // Chitty payments
     await client.query(`
@@ -223,6 +226,35 @@ async function initializeDatabase() {
     await client.query(`CREATE INDEX IF NOT EXISTS idx_ic_loan ON interest_collections(loan_id)`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_ic_user ON interest_collections(user_id)`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_ic_collected_on ON interest_collections(collected_on DESC)`);
+
+    // Chitty swap requests — a member proposes to swap their payout month with
+    // another member's payout month. Admin can approve (which atomically swaps
+    // both members' payout_month columns), reject, edit, or delete.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS chitty_swap_requests (
+        id SERIAL PRIMARY KEY,
+        requester_member_id INTEGER NOT NULL REFERENCES user_chitty(id) ON DELETE CASCADE,
+        target_member_id    INTEGER NOT NULL REFERENCES user_chitty(id) ON DELETE CASCADE,
+        reason              TEXT,
+        status              TEXT NOT NULL DEFAULT 'pending'
+                              CHECK (status IN ('pending','approved','rejected')),
+        admin_notes         TEXT,
+        decided_at          TIMESTAMP,
+        decided_by          INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        created_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        CHECK (requester_member_id <> target_member_id)
+      )
+    `);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_csr_requester ON chitty_swap_requests(requester_member_id)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_csr_target ON chitty_swap_requests(target_member_id)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_csr_status ON chitty_swap_requests(status)`);
+    // Prevent duplicate pending requests for the same (requester, target) pair.
+    await client.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_csr_unique_pending
+      ON chitty_swap_requests(requester_member_id, target_member_id)
+      WHERE status = 'pending'
+    `);
 
     // Seed loan_pool row
     await client.query(`

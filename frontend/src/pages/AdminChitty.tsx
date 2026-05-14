@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { chittyService, ChittyGroup, UserChitty, ChittyPayment, LinkableUser } from '../services/chittyService';
+import { chittyService, ChittyGroup, UserChitty, ChittyPayment, LinkableUser, ChittySwapRequest } from '../services/chittyService';
 import { formatCurrency } from '../utils/format';
 import toast from 'react-hot-toast';
 import {
@@ -16,6 +16,8 @@ import {
   TrashIcon,
   LinkIcon,
   UserCircleIcon,
+  XCircleIcon,
+  PencilIcon,
 } from '@heroicons/react/24/outline';
 import { CheckCircleIcon as CheckCircleSolid } from '@heroicons/react/24/solid';
 
@@ -35,7 +37,7 @@ function formatPayoutMonth(group: ChittyGroup, payoutMonth: number) {
 }
 
 const AdminChitty: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'settings' | 'members' | 'payments'>('members');
+  const [activeTab, setActiveTab] = useState<'settings' | 'members' | 'payments' | 'swap-requests'>('members');
   const [group, setGroup] = useState<ChittyGroup | null>(null);
   const [members, setMembers] = useState<UserChitty[]>([]);
   const [loading, setLoading] = useState(true);
@@ -89,6 +91,44 @@ const AdminChitty: React.FC = () => {
   const [selectedLinkUserId, setSelectedLinkUserId] = useState<string>('');
   const [linkModalLoading, setLinkModalLoading] = useState(false);
   const [linkSaving, setLinkSaving] = useState(false);
+
+  // Swap requests tab state
+  const [swapRequests, setSwapRequests] = useState<ChittySwapRequest[]>([]);
+  const [swapRequestsLoading, setSwapRequestsLoading] = useState(false);
+  const [swapRequestsFilter, setSwapRequestsFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('pending');
+  const [swapRequestActionLoading, setSwapRequestActionLoading] = useState<string | null>(null);
+
+  // Swap request edit modal state
+  const [editSwapRequest, setEditSwapRequest] = useState<ChittySwapRequest | null>(null);
+  const [editSwapForm, setEditSwapForm] = useState<{ requester_member_id: string; target_member_id: string; reason: string; admin_notes: string }>({
+    requester_member_id: '',
+    target_member_id: '',
+    reason: '',
+    admin_notes: '',
+  });
+  const [editSwapSubmitting, setEditSwapSubmitting] = useState(false);
+
+  // Swap request decision modal state (approve / reject) — captures admin notes
+  const [decisionModal, setDecisionModal] = useState<{ kind: 'approve' | 'reject'; request: ChittySwapRequest } | null>(null);
+  const [decisionNotes, setDecisionNotes] = useState('');
+  const [decisionSubmitting, setDecisionSubmitting] = useState(false);
+
+  const fetchSwapRequests = async () => {
+    setSwapRequestsLoading(true);
+    try {
+      const status = swapRequestsFilter === 'all' ? undefined : swapRequestsFilter;
+      const data = await chittyService.getAllSwapRequests(status);
+      setSwapRequests(data);
+    } catch (err) {
+      toast.error('Failed to load swap requests');
+    } finally {
+      setSwapRequestsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'swap-requests') fetchSwapRequests();
+  }, [activeTab, swapRequestsFilter]);  // fetchSwapRequests intentionally stable here
 
   useEffect(() => { fetchAll(); }, []);
 
@@ -467,6 +507,20 @@ const AdminChitty: React.FC = () => {
         >
           Payments
         </button>
+        <button
+          className={`tab-btn${activeTab === 'swap-requests' ? ' active' : ''}`}
+          onClick={() => setActiveTab('swap-requests')}
+        >
+          Swap Requests
+          {swapRequests.filter(r => r.status === 'pending').length > 0 && (
+            <span style={{
+              marginLeft: 6, background: 'var(--color-warning, #f59e0b)', color: 'white',
+              fontSize: 10, padding: '2px 6px', borderRadius: 10, fontWeight: 700,
+            }}>
+              {swapRequests.filter(r => r.status === 'pending').length}
+            </span>
+          )}
+        </button>
         <button className={`tab-btn${activeTab === 'settings' ? ' active' : ''}`} onClick={() => setActiveTab('settings')}>
           Group Settings
         </button>
@@ -722,15 +776,6 @@ const AdminChitty: React.FC = () => {
                     )}
                   </div>
 
-                  {/* Transfer badge */}
-                  {member.transfer_requested === 1 && (
-                    <div style={{ marginBottom: 10 }}>
-                      <span className={`badge ${member.transfer_approved ? 'badge-approved' : 'badge-pending'}`} style={{ fontSize: 11 }}>
-                        Transfer {member.transfer_approved ? 'Approved' : 'Requested'}
-                      </span>
-                    </div>
-                  )}
-
                   {/* Action buttons */}
                   <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: 6 }}>
                     {isEditing ? (
@@ -773,6 +818,174 @@ const AdminChitty: React.FC = () => {
                 </div>
               );
             })}
+          </div>
+        </div>
+      )}
+
+      {/* Swap Requests Tab */}
+      {activeTab === 'swap-requests' && group && (
+        <div>
+          {/* Filter bar */}
+          <div style={{ display: 'flex', gap: 8, marginBottom: 16, alignItems: 'center', flexWrap: 'wrap' }}>
+            <span style={{ fontWeight: 600, color: 'var(--gray-700)' }}>Show:</span>
+            {(['pending', 'approved', 'rejected', 'all'] as const).map(f => (
+              <button
+                key={f}
+                className={`btn btn-sm ${swapRequestsFilter === f ? 'btn-primary' : 'btn-ghost'}`}
+                onClick={() => setSwapRequestsFilter(f)}
+              >
+                {f.charAt(0).toUpperCase() + f.slice(1)}
+              </button>
+            ))}
+            <button className="btn btn-sm btn-ghost" onClick={fetchSwapRequests} style={{ marginLeft: 'auto' }}>
+              <ArrowPathIcon style={{ width: 14, height: 14 }} /> Refresh
+            </button>
+          </div>
+
+          <div className="card">
+            <div className="card-header">
+              <div className="card-header-text">
+                <h3>Chitty Swap Requests</h3>
+                <p>Approve, reject, edit, or delete member-submitted swap requests · Approving atomically swaps payout months</p>
+              </div>
+            </div>
+            <div className="card-body">
+              {swapRequestsLoading ? (
+                <div style={{ textAlign: 'center', padding: 24, color: 'var(--gray-500)' }}>Loading…</div>
+              ) : swapRequests.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: 24, color: 'var(--gray-500)' }}>
+                  No {swapRequestsFilter === 'all' ? '' : swapRequestsFilter} swap requests.
+                </div>
+              ) : (
+                <div style={{ overflowX: 'auto' }}>
+                  <table className="data-table" style={{ width: '100%' }}>
+                    <thead>
+                      <tr>
+                        <th>Created</th>
+                        <th>Requester</th>
+                        <th>Target</th>
+                        <th>Reason</th>
+                        <th>Status</th>
+                        <th>Decided</th>
+                        <th style={{ minWidth: 220 }}>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {swapRequests.map(req => {
+                        const isPending = req.status === 'pending';
+                        const actionKey = `${req.id}`;
+                        const isThisLoading = swapRequestActionLoading === actionKey;
+                        const statusBadgeClass =
+                          req.status === 'approved' ? 'badge badge-approved' :
+                          req.status === 'rejected' ? 'badge badge-rejected' :
+                          'badge badge-pending';
+                        return (
+                          <tr key={req.id}>
+                            <td style={{ fontSize: 12, whiteSpace: 'nowrap' }}>
+                              {new Date(req.created_at).toLocaleString()}
+                            </td>
+                            <td>
+                              <div style={{ fontWeight: 600 }}>{req.requester_member_name}</div>
+                              <div style={{ fontSize: 11, color: 'var(--gray-500)' }}>
+                                Month {req.requester_payout_month}
+                                {req.requester_user_name ? ` · ${req.requester_user_name}` : ''}
+                              </div>
+                            </td>
+                            <td>
+                              <div style={{ fontWeight: 600 }}>{req.target_member_name}</div>
+                              <div style={{ fontSize: 11, color: 'var(--gray-500)' }}>
+                                Month {req.target_payout_month}
+                                {req.target_user_name ? ` · ${req.target_user_name}` : ''}
+                              </div>
+                            </td>
+                            <td style={{ fontSize: 12, color: 'var(--gray-600)', maxWidth: 220 }}>
+                              {req.reason || <span style={{ color: 'var(--gray-400)' }}>—</span>}
+                              {req.admin_notes && (
+                                <div style={{ marginTop: 4, fontStyle: 'italic', color: 'var(--gray-500)' }}>
+                                  Admin: {req.admin_notes}
+                                </div>
+                              )}
+                            </td>
+                            <td>
+                              <span className={statusBadgeClass}>
+                                {req.status.charAt(0).toUpperCase() + req.status.slice(1)}
+                              </span>
+                            </td>
+                            <td style={{ fontSize: 11, color: 'var(--gray-500)', whiteSpace: 'nowrap' }}>
+                              {req.decided_at ? (
+                                <>
+                                  {new Date(req.decided_at).toLocaleDateString()}
+                                  {req.decided_by_name && <div>by {req.decided_by_name}</div>}
+                                </>
+                              ) : '—'}
+                            </td>
+                            <td>
+                              <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                                {isPending && (
+                                  <>
+                                    <button
+                                      className="btn btn-sm btn-success"
+                                      disabled={isThisLoading}
+                                      onClick={() => { setDecisionModal({ kind: 'approve', request: req }); setDecisionNotes(''); }}
+                                      title="Approve and swap months"
+                                    >
+                                      <CheckCircleIcon style={{ width: 14, height: 14 }} /> Approve
+                                    </button>
+                                    <button
+                                      className="btn btn-sm btn-danger"
+                                      disabled={isThisLoading}
+                                      onClick={() => { setDecisionModal({ kind: 'reject', request: req }); setDecisionNotes(''); }}
+                                    >
+                                      <XCircleIcon style={{ width: 14, height: 14 }} /> Reject
+                                    </button>
+                                  </>
+                                )}
+                                <button
+                                  className="btn btn-sm btn-ghost"
+                                  disabled={isThisLoading}
+                                  onClick={() => {
+                                    setEditSwapRequest(req);
+                                    setEditSwapForm({
+                                      requester_member_id: String(req.requester_member_id),
+                                      target_member_id: String(req.target_member_id),
+                                      reason: req.reason || '',
+                                      admin_notes: req.admin_notes || '',
+                                    });
+                                  }}
+                                  title={isPending ? 'Edit request' : 'Edit admin notes only'}
+                                >
+                                  <PencilIcon style={{ width: 14, height: 14 }} /> Edit
+                                </button>
+                                <button
+                                  className="btn btn-sm btn-ghost"
+                                  disabled={isThisLoading}
+                                  style={{ color: 'var(--color-danger)' }}
+                                  onClick={async () => {
+                                    if (!window.confirm(`Delete swap request #${req.id}? This cannot be undone.`)) return;
+                                    setSwapRequestActionLoading(actionKey);
+                                    try {
+                                      await chittyService.deleteSwapRequest(req.id);
+                                      toast.success('Swap request deleted');
+                                      await fetchSwapRequests();
+                                    } catch (err: any) {
+                                      toast.error(err.response?.data?.error || 'Failed to delete request');
+                                    } finally {
+                                      setSwapRequestActionLoading(null);
+                                    }
+                                  }}
+                                >
+                                  <TrashIcon style={{ width: 14, height: 14 }} />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -1338,6 +1551,184 @@ const AdminChitty: React.FC = () => {
                   <button type="submit" className="btn btn-primary" disabled={swapping}>{swapping ? 'Swapping...' : 'Swap Months'}</button>
                 </div>
               </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Swap request approve/reject decision modal */}
+      {decisionModal && (
+        <div
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
+          onClick={e => { if (e.target === e.currentTarget && !decisionSubmitting) setDecisionModal(null); }}
+        >
+          <div className="card" style={{ width: 500, margin: 0 }}>
+            <div className="card-header">
+              <div className="card-header-text">
+                <h3>{decisionModal.kind === 'approve' ? 'Approve & Swap Months' : 'Reject Swap Request'}</h3>
+                <p>Request #{decisionModal.request.id}</p>
+              </div>
+            </div>
+            <div className="card-body">
+              <div style={{ background: 'var(--gray-50)', borderRadius: 8, padding: 12, marginBottom: 14, fontSize: 13 }}>
+                <div>
+                  <strong>{decisionModal.request.requester_member_name}</strong> (Month {decisionModal.request.requester_payout_month})
+                  {' ⇄ '}
+                  <strong>{decisionModal.request.target_member_name}</strong> (Month {decisionModal.request.target_payout_month})
+                </div>
+                {decisionModal.request.reason && (
+                  <div style={{ marginTop: 6, color: 'var(--gray-600)', fontStyle: 'italic' }}>
+                    "{decisionModal.request.reason}"
+                  </div>
+                )}
+              </div>
+              {decisionModal.kind === 'approve' && (
+                <div style={{ background: '#fff7ed', border: '1px solid #fed7aa', color: '#92400e', borderRadius: 8, padding: 10, marginBottom: 12, fontSize: 12 }}>
+                  ⚠ Approving will atomically swap payout months for both members. This affects the schedule for everyone.
+                </div>
+              )}
+              <div className="form-group">
+                <label className="form-label">Admin notes (optional)</label>
+                <textarea
+                  className="form-control"
+                  rows={3}
+                  value={decisionNotes}
+                  onChange={e => setDecisionNotes(e.target.value)}
+                  placeholder={decisionModal.kind === 'approve' ? 'Reason for approval…' : 'Reason for rejection…'}
+                />
+              </div>
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 8 }}>
+                <button className="btn btn-ghost" onClick={() => setDecisionModal(null)} disabled={decisionSubmitting}>Cancel</button>
+                <button
+                  className={`btn ${decisionModal.kind === 'approve' ? 'btn-success' : 'btn-danger'}`}
+                  disabled={decisionSubmitting}
+                  onClick={async () => {
+                    setDecisionSubmitting(true);
+                    try {
+                      if (decisionModal.kind === 'approve') {
+                        await chittyService.approveSwapRequest(decisionModal.request.id, decisionNotes || undefined);
+                        toast.success('Swap approved · payout months swapped');
+                      } else {
+                        await chittyService.rejectSwapRequest(decisionModal.request.id, decisionNotes || undefined);
+                        toast.success('Swap request rejected');
+                      }
+                      setDecisionModal(null);
+                      await Promise.all([fetchSwapRequests(), fetchAll()]);
+                    } catch (err: any) {
+                      toast.error(err.response?.data?.error || 'Action failed');
+                    } finally {
+                      setDecisionSubmitting(false);
+                    }
+                  }}
+                >
+                  {decisionSubmitting
+                    ? (decisionModal.kind === 'approve' ? 'Approving…' : 'Rejecting…')
+                    : (decisionModal.kind === 'approve' ? 'Approve & Swap' : 'Reject Request')}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Swap request edit modal */}
+      {editSwapRequest && (
+        <div
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
+          onClick={e => { if (e.target === e.currentTarget && !editSwapSubmitting) setEditSwapRequest(null); }}
+        >
+          <div className="card" style={{ width: 540, margin: 0, maxHeight: '90vh', overflowY: 'auto' }}>
+            <div className="card-header">
+              <div className="card-header-text">
+                <h3>Edit Swap Request #{editSwapRequest.id}</h3>
+                <p>{editSwapRequest.status === 'pending' ? 'All fields editable' : 'Only admin notes editable (request already decided)'}</p>
+              </div>
+            </div>
+            <div className="card-body">
+              <div className="form-group">
+                <label className="form-label">Requester member</label>
+                <select
+                  className="form-control"
+                  value={editSwapForm.requester_member_id}
+                  disabled={editSwapRequest.status !== 'pending'}
+                  onChange={e => setEditSwapForm({ ...editSwapForm, requester_member_id: e.target.value })}
+                >
+                  {members.map(m => (
+                    <option key={m.id} value={m.id}>
+                      {m.member_name} — Month {m.payout_month}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Target member</label>
+                <select
+                  className="form-control"
+                  value={editSwapForm.target_member_id}
+                  disabled={editSwapRequest.status !== 'pending'}
+                  onChange={e => setEditSwapForm({ ...editSwapForm, target_member_id: e.target.value })}
+                >
+                  {members.map(m => (
+                    <option key={m.id} value={m.id}>
+                      {m.member_name} — Month {m.payout_month}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Reason</label>
+                <textarea
+                  className="form-control"
+                  rows={2}
+                  value={editSwapForm.reason}
+                  disabled={editSwapRequest.status !== 'pending'}
+                  onChange={e => setEditSwapForm({ ...editSwapForm, reason: e.target.value })}
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Admin notes</label>
+                <textarea
+                  className="form-control"
+                  rows={2}
+                  value={editSwapForm.admin_notes}
+                  onChange={e => setEditSwapForm({ ...editSwapForm, admin_notes: e.target.value })}
+                />
+              </div>
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 8 }}>
+                <button className="btn btn-ghost" onClick={() => setEditSwapRequest(null)} disabled={editSwapSubmitting}>Cancel</button>
+                <button
+                  className="btn btn-primary"
+                  disabled={editSwapSubmitting}
+                  onClick={async () => {
+                    const reqId = parseInt(editSwapForm.requester_member_id, 10);
+                    const tgtId = parseInt(editSwapForm.target_member_id, 10);
+                    if (editSwapRequest.status === 'pending' && reqId === tgtId) {
+                      toast.error('Requester and target must be different members');
+                      return;
+                    }
+                    setEditSwapSubmitting(true);
+                    try {
+                      const fields: any = {};
+                      if (editSwapRequest.status === 'pending') {
+                        fields.requester_member_id = reqId;
+                        fields.target_member_id = tgtId;
+                        fields.reason = editSwapForm.reason || null;
+                      }
+                      fields.admin_notes = editSwapForm.admin_notes || null;
+                      await chittyService.updateSwapRequest(editSwapRequest.id, fields);
+                      toast.success('Swap request updated');
+                      setEditSwapRequest(null);
+                      await fetchSwapRequests();
+                    } catch (err: any) {
+                      toast.error(err.response?.data?.error || 'Failed to update request');
+                    } finally {
+                      setEditSwapSubmitting(false);
+                    }
+                  }}
+                >
+                  {editSwapSubmitting ? 'Saving…' : 'Save Changes'}
+                </button>
+              </div>
             </div>
           </div>
         </div>

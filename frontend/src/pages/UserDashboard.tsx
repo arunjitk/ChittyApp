@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { poolService, loanService } from '../services/loanService';
-import { chittyService, ChittyGroup, UserChitty, ChittyPayment, PayoutInfo, ScheduleEntry, MyChittyData, ChittyScheduleMonth } from '../services/chittyService';
+import { chittyService, ChittyGroup, UserChitty, ChittyPayment, PayoutInfo, ScheduleEntry, MyChittyData, ChittyScheduleMonth, ChittySwapRequest } from '../services/chittyService';
 import { formatCurrency, formatDate, getStatusColor, getStatusText } from '../utils/format';
 import toast from 'react-hot-toast';
 import {
@@ -69,19 +69,36 @@ const UserDashboard: React.FC = () => {
   const [pendingLoans, setPendingLoans] = useState<any[]>([]);
   const [swapRequests, setSwapRequests] = useState<any[]>([]);
   const [swapActionLoading, setSwapActionLoading] = useState<Record<number, boolean>>({});
+
+  // Chitty swap request modal state
+  const [chittySwapModal, setChittySwapModal] = useState(false);
+  const [chittySwapTargetId, setChittySwapTargetId] = useState('');
+  const [chittySwapReason, setChittySwapReason] = useState('');
+  const [chittySwapSubmitting, setChittySwapSubmitting] = useState(false);
+  const [myChittySwapRequests, setMyChittySwapRequests] = useState<ChittySwapRequest[]>([]);
+
+  const refreshMyChittySwaps = async () => {
+    try {
+      const data = await chittyService.getMySwapRequests();
+      setMyChittySwapRequests(data);
+    } catch {
+      // non-fatal
+    }
+  };
   const [selectedLoan, setSelectedLoan] = useState<any>(null);
   const [loanDetailModal, setLoanDetailModal] = useState<any>(null);
 
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [dashboardData, loansData, chitty, payments, pending, swaps] = await Promise.all([
+        const [dashboardData, loansData, chitty, payments, pending, swaps, chittySwaps] = await Promise.all([
           poolService.getDashboard(),
           loanService.getMyLoans(),
           chittyService.getMyChitty().catch(() => null),
           chittyService.getMyPayments().catch(() => []),
           loanService.getPendingPublic().catch(() => []),
           loanService.getMySwapRequests().catch(() => []),
+          chittyService.getMySwapRequests().catch(() => [] as ChittySwapRequest[]),
         ]);
         setDashboard(dashboardData);
         setLoans(loansData);
@@ -89,6 +106,7 @@ const UserDashboard: React.FC = () => {
         setMyPayments(payments);
         setPendingLoans(pending);
         setSwapRequests(swaps);
+        setMyChittySwapRequests(chittySwaps);
       } catch (error) {
         console.error('Failed to fetch dashboard data:', error);
       } finally {
@@ -906,26 +924,75 @@ const UserDashboard: React.FC = () => {
                     <span className="desc-value" style={{ color: 'var(--color-danger)', fontWeight: 600 }}>{formatCurrency(chittyData.member.penalties_due)}</span>
                   </div>
                 )}
-                {chittyData.member.status === 'active' && !chittyData.member.transfer_requested && (
+                {chittyData.member.status === 'active' && (
                   <div style={{ marginTop: 12 }}>
                     <button
-                      className="btn btn-secondary"
+                      className="btn btn-primary"
                       style={{ fontSize: 12 }}
-                      onClick={async () => {
-                        try {
-                          await chittyService.requestTransfer(chittyData.member!.id);
-                          const updated = await chittyService.getMyChitty();
-                          setChittyData(updated);
-                        } catch {}
+                      onClick={() => {
+                        setChittySwapTargetId('');
+                        setChittySwapReason('');
+                        setChittySwapModal(true);
                       }}
                     >
-                      Request Transfer
+                      <ArrowsRightLeftIcon style={{ width: 14, height: 14 }} />
+                      Request Month Swap
                     </button>
                   </div>
                 )}
-                {chittyData.member.transfer_requested === 1 && (
-                  <div style={{ marginTop: 8, fontSize: 12, color: 'var(--gray-500)' }}>
-                    Transfer request pending admin approval
+
+                {/* My chitty swap requests — visible if any exist */}
+                {myChittySwapRequests.length > 0 && (
+                  <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--gray-200)' }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--gray-600)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>
+                      My Swap Requests
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      {myChittySwapRequests.slice(0, 5).map(req => {
+                        const badgeClass =
+                          req.status === 'approved' ? 'badge-approved' :
+                          req.status === 'rejected' ? 'badge-rejected' :
+                          'badge-pending';
+                        return (
+                          <div key={req.id} style={{ background: 'var(--gray-50)', borderRadius: 6, padding: '8px 10px', fontSize: 12, display: 'flex', alignItems: 'center', gap: 10, justifyContent: 'space-between' }}>
+                            <div style={{ flex: 1 }}>
+                              <div>
+                                With <strong>{req.target_member_name}</strong> (Month {req.target_payout_month})
+                              </div>
+                              {req.reason && (
+                                <div style={{ color: 'var(--gray-500)', fontStyle: 'italic', fontSize: 11 }}>"{req.reason}"</div>
+                              )}
+                              {req.admin_notes && (
+                                <div style={{ color: 'var(--gray-500)', fontSize: 11, marginTop: 2 }}>Admin: {req.admin_notes}</div>
+                              )}
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                              <span className={`badge ${badgeClass}`} style={{ fontSize: 10 }}>
+                                {req.status.charAt(0).toUpperCase() + req.status.slice(1)}
+                              </span>
+                              {req.status === 'pending' && (
+                                <button
+                                  className="btn btn-sm btn-ghost"
+                                  style={{ fontSize: 11, color: 'var(--color-danger)', padding: '2px 6px' }}
+                                  onClick={async () => {
+                                    if (!window.confirm('Cancel this swap request?')) return;
+                                    try {
+                                      await chittyService.deleteSwapRequest(req.id);
+                                      toast.success('Request cancelled');
+                                      await refreshMyChittySwaps();
+                                    } catch (err: any) {
+                                      toast.error(err.response?.data?.error || 'Failed to cancel');
+                                    }
+                                  }}
+                                >
+                                  Cancel
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
                 )}
               </div>
@@ -1682,6 +1749,88 @@ const UserDashboard: React.FC = () => {
                 objectFit: 'contain',
               }}
             />
+          </div>
+        </div>
+      )}
+
+      {/* Chitty Swap Request modal */}
+      {chittySwapModal && chittyData?.member && (
+        <div
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
+          onClick={e => { if (e.target === e.currentTarget && !chittySwapSubmitting) setChittySwapModal(false); }}
+        >
+          <div className="card" style={{ width: 480, margin: 0 }}>
+            <div className="card-header">
+              <div className="card-header-text">
+                <h3>Request Month Swap</h3>
+                <p>Propose to swap your payout month with another member</p>
+              </div>
+            </div>
+            <div className="card-body">
+              <div style={{ background: 'var(--gray-50)', borderRadius: 8, padding: 10, marginBottom: 12, fontSize: 13 }}>
+                You are <strong>{chittyData.member.member_name}</strong> · current payout: <strong>Month {chittyData.member.payout_month}</strong>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Swap with member</label>
+                <select
+                  className="form-control"
+                  value={chittySwapTargetId}
+                  onChange={e => setChittySwapTargetId(e.target.value)}
+                  required
+                >
+                  <option value="">Select a member…</option>
+                  {chittyData.schedule
+                    .filter(s => !s.is_me && s.status === 'active')
+                    .map(s => {
+                      // Find the matching member in `allMembers` via name; fall back to schedule data
+                      return (
+                        <option key={s.payout_month} value={s.payout_month}>
+                          {s.member_name} — Month {s.payout_month} ({s.month_name} {s.year})
+                        </option>
+                      );
+                    })}
+                </select>
+                <div style={{ fontSize: 11, color: 'var(--gray-500)', marginTop: 4 }}>
+                  Only active members are shown; members whose payout has been received cannot be swapped with.
+                </div>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Reason (optional)</label>
+                <textarea
+                  className="form-control"
+                  rows={3}
+                  value={chittySwapReason}
+                  onChange={e => setChittySwapReason(e.target.value)}
+                  placeholder="Why do you want this swap? (e.g. medical emergency, travel plans…)"
+                />
+              </div>
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 8 }}>
+                <button className="btn btn-ghost" onClick={() => setChittySwapModal(false)} disabled={chittySwapSubmitting}>Cancel</button>
+                <button
+                  className="btn btn-primary"
+                  disabled={chittySwapSubmitting || !chittySwapTargetId}
+                  onClick={async () => {
+                    const targetMonth = parseInt(chittySwapTargetId, 10);
+                    setChittySwapSubmitting(true);
+                    try {
+                      await chittyService.createSwapRequest({
+                        target_payout_month: targetMonth,
+                        reason: chittySwapReason || undefined,
+                      });
+                      toast.success('Swap request submitted');
+                      setChittySwapModal(false);
+                      await refreshMyChittySwaps();
+                    } catch (err: any) {
+                      toast.error(err.response?.data?.error || 'Failed to submit request');
+                    } finally {
+                      setChittySwapSubmitting(false);
+                    }
+                  }}
+                >
+                  {chittySwapSubmitting ? 'Submitting…' : 'Submit Request'}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

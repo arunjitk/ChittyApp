@@ -19,7 +19,7 @@ class UserChitty {
   static async update(id, fields) {
     const allowed = [
       'member_name', 'payout_month', 'penalties_due', 'status',
-      'transfer_requested', 'transfer_approved', 'paid_month', 'user_id',
+      'paid_month', 'user_id',
     ];
     const updates = [];
     const values = [];

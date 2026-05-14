@@ -5,6 +5,7 @@ const multer = require('multer');
 const { auth, adminAuth } = require('../middleware/auth');
 const ChittyGroup = require('../models/ChittyGroup');
 const UserChitty = require('../models/UserChitty');
+const ChittySwapRequest = require('../models/ChittySwapRequest');
 const { pool } = require('../config/database');
 
 const storage = multer.diskStorage({
@@ -106,6 +107,189 @@ router.post('/swap-months', adminAuth, async (req, res) => {
     res.json({ members });
   } catch (err) {
     res.status(500).json({ error: err.message || 'Failed to swap months' });
+  }
+});
+
+// ── Chitty swap requests ─────────────────────────────────────────────────────
+// All `/swap-requests` routes MUST be declared before /:id routes below so
+// Express does not interpret 'swap-requests' as an :id parameter.
+
+// POST /api/chitty/swap-requests — user submits a new swap request
+// Body: { target_member_id?, target_payout_month?, reason? }
+// Accepts either target_member_id (admin) or target_payout_month (user-friendly
+// — resolves to the member whose current payout_month matches).
+// The requester member is implicit: the chitty slot linked to req.user.id.
+router.post('/swap-requests', auth, async (req, res) => {
+  try {
+    const reason = (req.body.reason || '').toString().trim() || null;
+    let targetMemberId = req.body.target_member_id !== undefined ? parseInt(req.body.target_member_id, 10) : null;
+    const targetPayoutMonth = req.body.target_payout_month !== undefined ? parseInt(req.body.target_payout_month, 10) : null;
+
+    // Locate the requester's chitty slot.
+    const requesterMember = await UserChitty.findByUserId(req.user.id);
+    if (!requesterMember) {
+      return res.status(400).json({ error: 'Your account is not linked to a chitty slot' });
+    }
+
+    // Resolve target by payout_month if the caller didn't supply a member id.
+    if (!Number.isFinite(targetMemberId) || targetMemberId <= 0) {
+      if (!Number.isFinite(targetPayoutMonth) || targetPayoutMonth <= 0) {
+        return res.status(400).json({ error: 'target_member_id or target_payout_month is required' });
+      }
+      const { rows } = await pool.query(
+        'SELECT id FROM user_chitty WHERE payout_month = $1 LIMIT 1',
+        [targetPayoutMonth]
+      );
+      if (!rows[0]) return res.status(404).json({ error: `No member found at payout month ${targetPayoutMonth}` });
+      targetMemberId = rows[0].id;
+    }
+
+    if (requesterMember.id === targetMemberId) {
+      return res.status(400).json({ error: 'You cannot swap with yourself' });
+    }
+
+    const targetMember = await UserChitty.findById(targetMemberId);
+    if (!targetMember) {
+      return res.status(404).json({ error: 'Target member not found' });
+    }
+
+    // Don't allow proposing a swap with a slot whose month has already been paid.
+    if (requesterMember.status === 'paid' || targetMember.status === 'paid') {
+      return res.status(400).json({ error: 'Cannot swap with a member whose payout has already been received' });
+    }
+
+    try {
+      const created = await ChittySwapRequest.create({
+        requesterMemberId: requesterMember.id,
+        targetMemberId,
+        reason,
+      });
+      res.status(201).json({ request: created });
+    } catch (err) {
+      // Unique partial index — duplicate pending request
+      if (err.code === '23505') {
+        return res.status(409).json({ error: 'You already have a pending swap request with this member' });
+      }
+      throw err;
+    }
+  } catch (err) {
+    console.error('Create swap request error:', err);
+    res.status(500).json({ error: 'Failed to create swap request' });
+  }
+});
+
+// GET /api/chitty/swap-requests/mine — user lists their own requests
+router.get('/swap-requests/mine', auth, async (req, res) => {
+  try {
+    const requests = await ChittySwapRequest.listByRequesterUser(req.user.id);
+    res.json({ requests });
+  } catch (err) {
+    console.error('List my swap requests error:', err);
+    res.status(500).json({ error: 'Failed to fetch swap requests' });
+  }
+});
+
+// GET /api/chitty/swap-requests — admin lists all requests (optionally filtered by status)
+router.get('/swap-requests', adminAuth, async (req, res) => {
+  try {
+    const status = req.query.status;
+    const validStatus = ['pending', 'approved', 'rejected'].includes(status) ? status : undefined;
+    const requests = await ChittySwapRequest.listAll({ status: validStatus });
+    res.json({ requests });
+  } catch (err) {
+    console.error('List swap requests error:', err);
+    res.status(500).json({ error: 'Failed to fetch swap requests' });
+  }
+});
+
+// POST /api/chitty/swap-requests/:id/approve — admin approves; atomically swaps payout_month
+router.post('/swap-requests/:id/approve', adminAuth, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: 'Invalid id' });
+  try {
+    const updated = await ChittySwapRequest.approveAndSwap(id, {
+      adminId: req.user.id,
+      adminNotes: req.body?.admin_notes || null,
+    });
+    res.json({ request: updated });
+  } catch (err) {
+    if (err.message?.includes('not found')) return res.status(404).json({ error: err.message });
+    if (err.message?.includes('Cannot approve')) return res.status(400).json({ error: err.message });
+    console.error('Approve swap request error:', err);
+    res.status(500).json({ error: 'Failed to approve swap request' });
+  }
+});
+
+// POST /api/chitty/swap-requests/:id/reject — admin rejects
+router.post('/swap-requests/:id/reject', adminAuth, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: 'Invalid id' });
+  try {
+    const updated = await ChittySwapRequest.reject(id, {
+      adminId: req.user.id,
+      adminNotes: req.body?.admin_notes || null,
+    });
+    if (!updated) return res.status(404).json({ error: 'Swap request not found' });
+    res.json({ request: updated });
+  } catch (err) {
+    if (err.message?.includes('Cannot reject')) return res.status(400).json({ error: err.message });
+    console.error('Reject swap request error:', err);
+    res.status(500).json({ error: 'Failed to reject swap request' });
+  }
+});
+
+// PATCH /api/chitty/swap-requests/:id — admin edits a swap request
+// Pending requests: requester_member_id, target_member_id, reason, admin_notes
+// Decided requests: admin_notes only
+router.patch('/swap-requests/:id', adminAuth, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: 'Invalid id' });
+  try {
+    const fields = {};
+    if (req.body.requester_member_id !== undefined) fields.requester_member_id = parseInt(req.body.requester_member_id, 10);
+    if (req.body.target_member_id !== undefined) fields.target_member_id = parseInt(req.body.target_member_id, 10);
+    if (req.body.reason !== undefined) fields.reason = req.body.reason;
+    if (req.body.admin_notes !== undefined) fields.admin_notes = req.body.admin_notes;
+
+    if (fields.requester_member_id !== undefined && fields.target_member_id !== undefined
+        && fields.requester_member_id === fields.target_member_id) {
+      return res.status(400).json({ error: 'Requester and target must be different members' });
+    }
+
+    const updated = await ChittySwapRequest.update(id, fields);
+    if (!updated) return res.status(404).json({ error: 'Swap request not found' });
+    res.json({ request: updated });
+  } catch (err) {
+    if (err.code === '23505') return res.status(409).json({ error: 'A pending request for this pair already exists' });
+    if (err.code === '23514') return res.status(400).json({ error: 'Requester and target must be different members' });
+    console.error('Update swap request error:', err);
+    res.status(500).json({ error: 'Failed to update swap request' });
+  }
+});
+
+// DELETE /api/chitty/swap-requests/:id — user can cancel own pending; admin can delete any
+router.delete('/swap-requests/:id', auth, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: 'Invalid id' });
+  try {
+    const existing = await ChittySwapRequest.findById(id);
+    if (!existing) return res.status(404).json({ error: 'Swap request not found' });
+
+    if (req.user.role !== 'admin') {
+      // Non-admin can only delete their own pending requests.
+      if (existing.requester_user_id !== req.user.id) {
+        return res.status(403).json({ error: 'You can only cancel your own requests' });
+      }
+      if (existing.status !== 'pending') {
+        return res.status(400).json({ error: 'Only pending requests can be cancelled' });
+      }
+    }
+
+    await ChittySwapRequest.delete(id);
+    res.json({ message: 'Swap request deleted' });
+  } catch (err) {
+    console.error('Delete swap request error:', err);
+    res.status(500).json({ error: 'Failed to delete swap request' });
   }
 });
 
@@ -308,19 +492,6 @@ router.patch('/:id', adminAuth, async (req, res) => {
     res.json({ member });
   } catch (err) {
     res.status(500).json({ error: 'Failed to update member' });
-  }
-});
-
-// POST /api/chitty/:id/request-transfer
-router.post('/:id/request-transfer', auth, async (req, res) => {
-  try {
-    const member = await UserChitty.findById(req.params.id);
-    if (!member) return res.status(404).json({ error: 'Member not found' });
-    if (member.user_id !== req.user.id) return res.status(403).json({ error: 'Not your chitty slot' });
-    await UserChitty.update(req.params.id, { transfer_requested: 1 });
-    res.json({ message: 'Transfer request submitted' });
-  } catch (err) {
-    res.status(500).json({ error: 'Failed to request transfer' });
   }
 });
 

@@ -65,8 +65,20 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // ── Static uploads ──────────────────────────────────────────────────────────
+// Helmet's default Cross-Origin-Resource-Policy: same-origin blocks the
+// frontend (different port, e.g. :3001) from rendering these images in <img>
+// tags — even though downloads still work, because browsers exempt navigations.
+// Override CORP just for /uploads so screenshots display inline cross-origin.
+// CORS already governs whether the request itself is allowed.
 const path = require('path');
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+app.use(
+  '/uploads',
+  (req, res, next) => {
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    next();
+  },
+  express.static(path.join(__dirname, 'uploads'))
+);
 
 // ── Routes ──────────────────────────────────────────────────────────────────
 app.use('/api/auth',     authLimiter, require('./routes/auth'));

@@ -46,8 +46,6 @@ export interface UserChitty {
   payout_month: number;
   penalties_due: number;
   status: 'active' | 'paid' | 'transferred';
-  transfer_requested: number;
-  transfer_approved: number;
   paid_month: number | null;
   linked_user?: LinkedUser | null;
 }
@@ -111,6 +109,31 @@ export interface ScheduleEntry {
   is_me: boolean;
 }
 
+export interface ChittySwapRequest {
+  id: number;
+  requester_member_id: number;
+  target_member_id: number;
+  reason: string | null;
+  status: 'pending' | 'approved' | 'rejected';
+  admin_notes: string | null;
+  decided_at: string | null;
+  decided_by: number | null;
+  created_at: string;
+  updated_at: string;
+  // Joined fields
+  requester_member_name: string;
+  requester_payout_month: number;
+  requester_user_id: number | null;
+  requester_user_name: string | null;
+  requester_user_email: string | null;
+  target_member_name: string;
+  target_payout_month: number;
+  target_user_id: number | null;
+  target_user_name: string | null;
+  target_user_email: string | null;
+  decided_by_name: string | null;
+}
+
 export const chittyService = {
   async getGroup(): Promise<ChittyGroup> {
     const response = await api.get('/chitty/group');
@@ -145,10 +168,6 @@ export const chittyService = {
   async updateMember(id: number, fields: Partial<UserChitty>): Promise<UserChitty> {
     const response = await api.patch(`/chitty/${id}`, fields);
     return response.data.member;
-  },
-
-  async requestTransfer(id: number): Promise<void> {
-    await api.post(`/chitty/${id}/request-transfer`);
   },
 
   async swapMonths(id1: number, id2: number): Promise<UserChitty[]> {
@@ -191,5 +210,45 @@ export const chittyService = {
 
   async deletePayment(member_id: number, month: number): Promise<void> {
     await api.delete(`/chitty/payments/${member_id}/${month}`);
+  },
+
+  // ── Chitty swap requests ──────────────────────────────────────────────────
+  async createSwapRequest(args: { target_member_id?: number; target_payout_month?: number; reason?: string }): Promise<ChittySwapRequest> {
+    const response = await api.post('/chitty/swap-requests', args);
+    return response.data.request;
+  },
+
+  async getMySwapRequests(): Promise<ChittySwapRequest[]> {
+    const response = await api.get('/chitty/swap-requests/mine');
+    return response.data.requests;
+  },
+
+  async getAllSwapRequests(status?: 'pending' | 'approved' | 'rejected'): Promise<ChittySwapRequest[]> {
+    const response = await api.get('/chitty/swap-requests', { params: status ? { status } : {} });
+    return response.data.requests;
+  },
+
+  async approveSwapRequest(id: number, admin_notes?: string): Promise<ChittySwapRequest> {
+    const response = await api.post(`/chitty/swap-requests/${id}/approve`, { admin_notes });
+    return response.data.request;
+  },
+
+  async rejectSwapRequest(id: number, admin_notes?: string): Promise<ChittySwapRequest> {
+    const response = await api.post(`/chitty/swap-requests/${id}/reject`, { admin_notes });
+    return response.data.request;
+  },
+
+  async updateSwapRequest(id: number, fields: Partial<{
+    requester_member_id: number;
+    target_member_id: number;
+    reason: string;
+    admin_notes: string;
+  }>): Promise<ChittySwapRequest> {
+    const response = await api.patch(`/chitty/swap-requests/${id}`, fields);
+    return response.data.request;
+  },
+
+  async deleteSwapRequest(id: number): Promise<void> {
+    await api.delete(`/chitty/swap-requests/${id}`);
   },
 };
